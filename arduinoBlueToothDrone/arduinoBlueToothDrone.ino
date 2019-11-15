@@ -22,14 +22,14 @@ void arm()
 //arm speed controller, modify as necessary for your ESC
 
 Serial.println("Arming");
-setSpeed(50);
+setSpeed(30);
 delay(2000);
 
 setSpeed(90);
 delay(2000);
 
 Serial.println("Armed");
-setSpeed(50);
+setSpeed(30);
 delay(2000);
 
 }
