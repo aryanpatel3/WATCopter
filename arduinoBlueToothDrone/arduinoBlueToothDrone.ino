@@ -3,6 +3,18 @@
  * works with all 4 motors connected in parallel with the bread board
  */
 #include <Servo.h>
+#include <Wire.h>
+
+long accelX, accelY, accelZ;
+float gForceX, gForceY, gForceZ;
+
+long gyroX, gyroY, gyroZ;
+float rotX, rotY, rotZ;
+
+float AccX, AccY, AccZ;
+float GyroXForError, GyroYForError, GyroZForError;
+float AccErrorX, AccErrorY, GyroErrorX, GyroErrorY, GyroErrorZ;
+
 int speedSet = 0;
 
 Servo s1,s2,s3,s4;
@@ -91,11 +103,135 @@ delay(5000);
 Serial.println("Rest Phase Complete");
 }
 
+
+void setupMPU(){
+  Wire.beginTransmission(0b1101000); //This is the I2C address of the MPU (b1101000/b1101001 for AC0 low/high datasheet sec. 9.2)
+  Wire.write(0x6B); //Accessing the register 6B - Power Management (Sec. 4.28)
+  Wire.write(0b00000000); //Setting SLEEP register to 0. (Required; see Note on p. 9)
+  Wire.endTransmission();  
+  Wire.beginTransmission(0b1101000); //I2C address of the MPU
+  Wire.write(0x1B); //Accessing the register 1B - Gyroscope Configuration (Sec. 4.4) 
+  Wire.write(0x00000000); //Setting the gyro to full scale +/- 250deg./s 
+  Wire.endTransmission(); 
+  Wire.beginTransmission(0b1101000); //I2C address of the MPU
+  Wire.write(0x1C); //Accessing the register 1C - Acccelerometer Configuration (Sec. 4.5) 
+  Wire.write(0b00000000); //Setting the accel to +/- 2g
+  Wire.endTransmission(); 
+}
+
+void calculate_IMU_error() {
+      // We can call this funtion in the setup section to calculate the accelerometer and gyro data error. From here we will get the error values used in the above equations printed on the Serial Monitor.
+      // Note that we should place the IMU flat in order to get the proper values, so that we then can the correct values
+      // Read accelerometer values 200 times
+      int c = 0;
+      while (c < 200) {
+        Wire.beginTransmission(0x68);
+        Wire.write(0x3B);
+        Wire.endTransmission(false);
+        Wire.requestFrom(0x68, 6, true);
+        AccX = (Wire.read() << 8 | Wire.read()) / 16384.0 ;
+        AccY = (Wire.read() << 8 | Wire.read()) / 16384.0 ;
+        AccZ = (Wire.read() << 8 | Wire.read()) / 16384.0 ;
+        // Sum all readings
+        AccErrorX = AccErrorX + ((atan((AccY) / sqrt(pow((AccX), 2) + pow((AccZ), 2))) * 180 / PI));
+        AccErrorY = AccErrorY + ((atan(-1 * (AccX) / sqrt(pow((AccY), 2) + pow((AccZ), 2))) * 180 / PI));
+        c++;
+      }
+      //Divide the sum by 200 to get the error value
+      AccErrorX = AccErrorX / 200;
+      AccErrorY = AccErrorY / 200;
+      c = 0;
+      // Read gyro values 200 times
+      while (c < 200) {
+        Wire.beginTransmission(0x68);
+        Wire.write(0x43);
+        Wire.endTransmission(false);
+        Wire.requestFrom(0x68, 6, true);
+        GyroXForError = Wire.read() << 8 | Wire.read();
+        GyroYForError = Wire.read() << 8 | Wire.read();
+        GyroZForError = Wire.read() << 8 | Wire.read();
+        // Sum all readings
+        GyroErrorX = GyroErrorX + (GyroXForError / 131.0);
+        GyroErrorY = GyroErrorY + (GyroYForError / 131.0);
+        GyroErrorZ = GyroErrorZ + (GyroZForError / 131.0);
+        c++;
+      }
+      //Divide the sum by 200 to get the error value
+      GyroErrorX = GyroErrorX / 200;
+      GyroErrorY = GyroErrorY / 200;
+      GyroErrorZ = GyroErrorZ / 200;
+      // Print the error values on the Serial Monitor
+      Serial.print("AccErrorX: ");
+      Serial.println(AccErrorX);
+      Serial.print("AccErrorY: ");
+      Serial.println(AccErrorY);
+      Serial.print("GyroErrorX: ");
+      Serial.println(GyroErrorX);
+      Serial.print("GyroErrorY: ");
+      Serial.println(GyroErrorY);
+      Serial.print("GyroErrorZ: ");
+      Serial.println(GyroErrorZ);
+    }
+void recordAccelRegisters() {
+  Wire.beginTransmission(0b1101000); //I2C address of the MPU
+  Wire.write(0x3B); //Starting register for Accel Readings
+  Wire.endTransmission();
+  Wire.requestFrom(0b1101000,6); //Request Accel Registers (3B - 40)
+  while(Wire.available() < 6);
+  accelX = Wire.read()<<8|Wire.read(); //Store first two bytes into accelX
+  accelY = Wire.read()<<8|Wire.read(); //Store middle two bytes into accelY
+  accelZ = Wire.read()<<8|Wire.read(); //Store last two bytes into accelZ
+  processAccelData();
+}
+
+void processAccelData(){
+  gForceX = accelX / 16384.0;
+  gForceY = accelY / 16384.0; 
+  gForceZ = accelZ / 16384.0;
+}
+
+void recordGyroRegisters() {
+  Wire.beginTransmission(0b1101000); //I2C address of the MPU
+  Wire.write(0x43); //Starting register for Gyro Readings
+  Wire.endTransmission();
+  Wire.requestFrom(0b1101000,6); //Request Gyro Registers (43 - 48)
+  while(Wire.available() < 6);
+  gyroX = Wire.read()<<8|Wire.read(); //Store first two bytes into accelX
+  gyroY = Wire.read()<<8|Wire.read(); //Store middle two bytes into accelY
+  gyroZ = Wire.read()<<8|Wire.read(); //Store last two bytes into accelZ
+  processGyroData();
+}
+
+void processGyroData() {
+  rotX = gyroX / 131.0;
+  rotY = gyroY / 131.0; 
+  rotZ = gyroZ / 131.0;
+}
+
+void printData() {
+  Serial.print("Gyro (deg)");
+  Serial.print(" X=");
+  Serial.print(rotX);
+  Serial.print(" Y=");
+  Serial.print(rotY);
+  Serial.print(" Z=");
+  Serial.print(rotZ);
+  Serial.print(" Accel (g)");
+  Serial.print(" X=");
+  Serial.print(gForceX);
+  Serial.print(" Y=");
+  Serial.print(gForceY);
+  Serial.print(" Z=");
+  Serial.println(gForceZ);
+  //delay(1500);
+}
+
 void setup() 
 {
   // initialize the serial port:
   Serial.begin(9600);
-  
+  Wire.begin();
+  setupMPU();
   s1.attach(6);
   s2.attach(9);
   s3.attach(10);
@@ -104,12 +240,15 @@ void setup()
 }
 
 void loop() {
+  recordAccelRegisters();
+  recordGyroRegisters();
+  //printData();
   if(Serial.available())
   {
      Serial.println("Avalible");
      command = Serial.read();
      Serial.println(command);
-     if(command == '1' || command == '!'){
+     if(command == '5'){
        Serial.println("COMMAND RECEIVED");
         Serial.println("Starting");
         
@@ -119,14 +258,14 @@ void loop() {
         setSpeed(speedSet,s4);
         speedSet += 3;
         delay(1000);
-     } else if(command == '4' || command == '$'){
+     } else if(command == '6'){
         Serial.println("COMMAND RECEIVED");
         Serial.println("Stopping");
-        speedSet =0;
-        setSpeed(0,s1);
-        setSpeed(0,s2);
-        setSpeed(0,s3);
-        setSpeed(0,s4);
+        speedSet -= 10;
+        setSpeed(speedSet,s1);
+        setSpeed(speedSet,s2);
+        setSpeed(speedSet,s3);
+        setSpeed(speedSet,s4);
         delay(1000);
     }
   }
