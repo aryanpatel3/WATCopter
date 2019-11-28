@@ -7,7 +7,7 @@ int speedSet = 0;
 
 Servo s1,s2,s3,s4;
 
-int high1 = 70;
+int high1 = 45;
 int low1 = 10;
 
 int high2 = 90;
